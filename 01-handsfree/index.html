@@ -42,6 +42,8 @@
   <label><input type="radio" name="mode" value="silence"> Tryb B: przerwy = odtwarzanie „ciszy” (osobne pliki, cichy szum)</label>
   <label><input type="radio" name="mode" value="track"> Tryb C: cała sesja sklejona w JEDEN plik audio (jak piosenka)</label>
   <label><input type="radio" name="mode" value="webaudio"> Tryb D: Web Audio, segmenty zaplanowane z góry na jednym zegarze dźwięku</label>
+  <label>Sygnał przed odpowiedzią (tylko tryb C):
+    <select id="cue"><option value="">brak</option><option value="audio/cue1.wav" selected>1: dzwonek</option><option value="audio/cue2.wav">2: tik</option><option value="audio/cue3.wav">3: dwa tony</option></select></label>
   <button id="start">Start</button>
   <button id="stop" class="sec" disabled>Stop</button>
   <button id="copy" class="sec">Kopiuj log</button>
@@ -164,6 +166,8 @@ async function decodeAll(ctx) {
     const [q, a] = await Promise.all([c.q, c.a].map(u => fetch(u).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))));
     out.push({ q, a, text: c.text, words: c.words });
   }
+  const cueUrl = document.getElementById('cue').value;
+  out.cue = cueUrl ? await fetch(cueUrl).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b)) : null;
   return out;
 }
 function plan(bufs, loops) {
@@ -174,6 +178,7 @@ function plan(bufs, loops) {
     const mature = i === 0; // demo: karta 1 gra jako dojrzała (płynność), 2 i 3 jako młode (konstrukcja)
     segs.push({ t, buf: b.q, label: 'pytanie' }); t += b.q.duration;
     if (!mature) { t += b.words < 8 ? 0.7 : 1.5; segs.push({ t, buf: b.q, label: 'pytanie 2x' }); t += b.q.duration; }
+    if (bufs.cue) { t += 0.25; segs.push({ t, buf: bufs.cue, label: 'sygnał' }); t += bufs.cue.duration; }
     t += b.a.duration * 1.5 + 1;
     segs.push({ t, buf: b.a, label: 'wzór' }); t += b.a.duration;
     if (mature) { segs.push({ t, label: '(cisza na powtórzenie za wzorem)' }); t += b.a.duration; }
