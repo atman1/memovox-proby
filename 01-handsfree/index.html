@@ -44,6 +44,7 @@
   <label><input type="radio" name="mode" value="webaudio"> Tryb D: Web Audio, segmenty zaplanowane z góry na jednym zegarze dźwięku</label>
   <label>Sygnał przed odpowiedzią (tylko tryb C):
     <select id="cue"><option value="">brak</option><option value="audio/cue1.wav" selected>1: dzwonek</option><option value="audio/cue2.wav">2: tik</option><option value="audio/cue3.wav">3: dwa tony</option></select></label>
+  <label><input type="checkbox" id="noise"> Szum w przerwach (tryb C; test, czy w ogóle potrzebny)</label>
   <button id="start">Start</button>
   <button id="stop" class="sec" disabled>Stop</button>
   <button id="copy" class="sec">Kopiuj log</button>
@@ -202,11 +203,11 @@ async function runTrack() {
   const bufs = await decodeAll(tmp); tmp.close();
   const { segs, total } = plan(bufs, 3);
   const off = new OfflineAudioContext(1, Math.ceil(total * 24000), 24000);
-  { const nb = off.createBuffer(1, off.length, 24000), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * NOISE; const ns = off.createBufferSource(); ns.buffer = nb; ns.connect(off.destination); ns.start(0); }
+  if (document.getElementById('noise').checked) { const nb = off.createBuffer(1, off.length, 24000), d = nb.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * NOISE; const ns = off.createBufferSource(); ns.buffer = nb; ns.connect(off.destination); ns.start(0); }
   for (const sg of segs) if (sg.buf) { const src = off.createBufferSource(); src.buffer = sg.buf; src.connect(off.destination); src.start(sg.t); }
   const rendered = await off.startRendering();
   const url = wavFromBuffer(rendered);
-  log(`ścieżka gotowa: ${total.toFixed(0)} s, ${segs.filter(x => x.buf).length} segmentów, jeden plik`);
+  log(`ścieżka gotowa: ${total.toFixed(0)} s, ${segs.filter(x => x.buf).length} segmentów, jeden plik, szum=${document.getElementById('noise').checked ? 'tak' : 'NIE'}`);
   let next = 0;
   audio.ontimeupdate = () => {
     while (next < segs.length && audio.currentTime >= segs[next].t - 0.05) {
