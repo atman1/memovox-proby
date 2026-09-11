@@ -181,7 +181,7 @@ function plan(bufs, loops) {
     if (bufs.cue) { t += 0.25; segs.push({ t, buf: bufs.cue, label: 'sygnał' }); t += bufs.cue.duration; }
     t += b.a.duration * 1.5 + 1;
     segs.push({ t, buf: b.a, label: 'wzór' }); t += b.a.duration;
-    if (mature) { segs.push({ t, label: '(cisza na powtórzenie za wzorem)' }); t += b.a.duration; }
+    if (mature) { if (bufs.cue) { t += 0.25; segs.push({ t, buf: bufs.cue, label: 'sygnał (powtórz za wzorem)' }); t += bufs.cue.duration; } segs.push({ t, label: '(cisza na powtórzenie za wzorem)' }); t += b.a.duration; }
     t += b.a.duration <= 5 ? 1 : 2; // bufor przed następnym pytaniem
   }
   return { segs, total: t };
