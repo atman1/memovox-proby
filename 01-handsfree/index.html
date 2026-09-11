@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1a2540">
+<title>Memovox próba 0.1: hands-free po blokadzie</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f6f5f0; color: #1a2540; max-width: 640px; margin-inline: auto; }
+  h1 { font-size: 1.2rem; margin: 0 0 8px; }
+  p { margin: 6px 0; line-height: 1.4; }
+  .box { background: #fff; border-radius: 12px; padding: 12px 14px; margin: 12px 0; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  button { font-size: 1rem; padding: 12px 18px; border-radius: 10px; border: 0; background: #1a2540; color: #fff; margin: 4px 4px 4px 0; }
+  button.sec { background: #d9d6cc; color: #1a2540; }
+  button:disabled { opacity: .4; }
+  label { display: block; margin: 6px 0; }
+  #status { font-size: 1.4rem; font-weight: 700; min-height: 1.6em; }
+  #log { font-family: ui-monospace, monospace; font-size: .78rem; white-space: pre-wrap; max-height: 45vh; overflow: auto; background: #1a2540; color: #e8e4d6; padding: 10px; border-radius: 8px; }
+  .late { color: #ffb347; }
+  .err { color: #ff6b6b; }
+  ol { padding-left: 20px; }
+</style>
+</head>
+<body>
+<h1>Memovox, próba 0.1: hands-free po blokadzie ekranu</h1>
+
+<div class="box">
+  <p><b>Co robisz:</b></p>
+  <ol>
+    <li>Najlepiej zainstaluj jako aplikację (Chrome: menu ⋮ → „Dodaj do ekranu głównego" / „Zainstaluj"; Safari: Udostępnij → „Do ekranu początkowego") i otwórz z ikony.</li>
+    <li>Wybierz tryb, kliknij <b>Start</b>. Usłyszysz: dwa piski (pytanie), przerwa, dwa piski, cisza na odpowiedź, długi ton (wzór). Trzy karty w kółko.</li>
+    <li>Po 2-3 cyklach <b>zablokuj ekran</b>. Słuchaj 2 minuty. Potem odblokuj, wróć tu i kliknij <b>Stop</b>.</li>
+    <li>Kliknij <b>Kopiuj log</b> i wklej mi. Powtórz dla drugiego trybu. Jeśli masz słuchawki BT, trzeci raz w słuchawkach.</li>
+  </ol>
+</div>
+
+<div class="box">
+  <label><input type="radio" name="mode" value="pause" checked> Tryb A: przerwy = pauza odtwarzacza (timer JS)</label>
+  <label><input type="radio" name="mode" value="silence"> Tryb B: przerwy = odtwarzanie ciszy (dźwięk gra bez przerwy)</label>
+  <button id="start">Start</button>
+  <button id="stop" class="sec" disabled>Stop</button>
+  <button id="copy" class="sec">Kopiuj log</button>
+  <button id="clear" class="sec">Wyczyść log</button>
+  <div id="status">gotowe</div>
+</div>
+
+<div class="box"><div id="log"></div></div>
+
+<script>
+const CARDS = [
+  { q: 'audio/q1.wav', a: 'audio/a1.wav', words: 4 },
+  { q: 'audio/q2.wav', a: 'audio/a2.wav', words: 9 },
+  { q: 'audio/q3.wav', a: 'audio/a3.wav', words: 12 },
+];
+const LOG_KEY = 'memovox-proba-01-log';
+const logEl = document.getElementById('log');
+const statusEl = document.getElementById('status');
+const startBtn = document.getElementById('start');
+const stopBtn = document.getElementById('stop');
+let lines = [];
+try { lines = JSON.parse(localStorage.getItem(LOG_KEY) || '[]'); } catch (e) {}
+render();
+
+function ts() { const d = new Date(); return d.toTimeString().slice(0, 8) + '.' + String(d.getMilliseconds()).padStart(3, '0'); }
+function log(msg, cls) {
+  lines.push({ t: ts(), msg, cls });
+  if (lines.length > 600) lines = lines.slice(-600);
+  try { localStorage.setItem(LOG_KEY, JSON.stringify(lines)); } catch (e) {}
+  render();
+}
+function render() {
+  logEl.innerHTML = lines.map(l => `<div class="${l.cls || ''}">${l.t} ${l.msg}</div>`).join('');
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function setStatus(s) { statusEl.textContent = s; }
+
+// jeden element audio, odblokowany gestem Start (wymóg iOS)
+const audio = new Audio();
+audio.preload = 'auto';
+['play', 'playing', 'pause', 'ended', 'stalled', 'suspend', 'waiting', 'error', 'abort'].forEach(ev =>
+  audio.addEventListener(ev, () => { if (ev !== 'play') log(`audio:${ev}${ev === 'error' ? ' ' + (audio.error && audio.error.code) : ''}`, ev === 'error' ? 'err' : ''); }));
+document.addEventListener('visibilitychange', () => log(`visibility:${document.visibilityState}`));
+window.addEventListener('pagehide', () => log('pagehide'));
+window.addEventListener('pageshow', () => log('pageshow'));
+window.addEventListener('freeze', () => log('freeze'));
+window.addEventListener('resume', () => log('resume'));
+window.addEventListener('online', () => log('online'));
+window.addEventListener('offline', () => log('offline'));
+
+// cisza jako WAV generowany w locie (tryb B)
+const silenceCache = {};
+function silenceUrl(sec) {
+  const key = sec.toFixed(2);
+  if (silenceCache[key]) return silenceCache[key];
+  const sr = 8000, n = Math.round(sr * sec), buf = new ArrayBuffer(44 + n * 2), v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  return silenceCache[key] = URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
+let running = false, runId = 0, cycle = 0;
+
+function playUrl(url, label) {
+  return new Promise((resolve, reject) => {
+    const t0 = performance.now();
+    const done = () => { cleanup(); resolve(performance.now() - t0); };
+    const fail = () => { cleanup(); reject(new Error(label + ' error')); };
+    const cleanup = () => { audio.removeEventListener('ended', done); audio.removeEventListener('error', fail); };
+    audio.addEventListener('ended', done); audio.addEventListener('error', fail);
+    audio.src = url;
+    log(`▶ ${label}`);
+    audio.play().catch(e => { cleanup(); reject(new Error(label + ' play() odrzucone: ' + e.name)); });
+  });
+}
+
+function wait(sec, label, mode) {
+  const t0 = performance.now();
+  const check = (actual) => {
+    const drift = actual - sec * 1000;
+    log(`⏸ ${label} ${sec.toFixed(2)}s, faktycznie ${(actual / 1000).toFixed(2)}s${Math.abs(drift) > 300 ? ' OPÓŹNIENIE ' + Math.round(drift) + ' ms' : ''}`, Math.abs(drift) > 300 ? 'late' : '');
+  };
+  if (mode === 'silence') return playUrl(silenceUrl(sec), 'cisza ' + label).then(() => check(performance.now() - t0));
+  return new Promise(r => setTimeout(() => { check(performance.now() - t0); r(); }, sec * 1000));
+}
+
+async function loop(mode) {
+  const myRun = ++runId;
+  cycle = 0;
+  while (running && myRun === runId) {
+    for (const [i, c] of CARDS.entries()) {
+      if (!running || myRun !== runId) return;
+      cycle++;
+      setStatus(`cykl ${cycle}, karta ${i + 1}`);
+      log(`— karta ${i + 1} (cykl ${cycle})`);
+      try {
+        await playUrl(c.q, 'pytanie');
+        await wait(c.words < 8 ? 0.7 : 1.5, 'odstęp', mode);
+        await playUrl(c.q, 'pytanie 2x');
+        const aSec = await new Promise(r => { const a = new Audio(c.a); a.addEventListener('loadedmetadata', () => r(a.duration)); a.load(); });
+        await wait(aSec * 1.5 + 1, 'na odpowiedź', mode);
+        const ms = await playUrl(c.a, 'wzór');
+        log(`✓ karta ${i + 1} zaliczona (wzór ${Math.round(ms)} ms)`);
+      } catch (e) {
+        log('BŁĄD: ' + e.message, 'err');
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    }
+  }
+}
+
+startBtn.onclick = () => {
+  const mode = document.querySelector('input[name=mode]:checked').value;
+  running = true; startBtn.disabled = true; stopBtn.disabled = false;
+  log(`START tryb ${mode === 'pause' ? 'A (pauza)' : 'B (cisza)'}; ${navigator.userAgent}; PWA=${matchMedia('(display-mode: standalone)').matches || navigator.standalone ? 'tak' : 'nie'}`);
+  if ('mediaSession' in navigator) {
+    navigator.mediaSession.metadata = new MediaMetadata({ title: 'Memovox próba 0.1', artist: 'hands-free' });
+    ['play', 'pause', 'nexttrack', 'previoustrack'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, () => log('mediaSession:' + a)); } catch (e) {} });
+  }
+  loop(mode);
+};
+stopBtn.onclick = () => { running = false; runId++; audio.pause(); setStatus('zatrzymane'); startBtn.disabled = false; stopBtn.disabled = true; log('STOP'); };
+document.getElementById('copy').onclick = async () => {
+  const txt = lines.map(l => l.t + ' ' + l.msg).join('\n');
+  try { await navigator.clipboard.writeText(txt); setStatus('log skopiowany'); }
+  catch (e) { prompt('Skopiuj ręcznie:', txt); }
+};
+document.getElementById('clear').onclick = () => { lines = []; localStorage.removeItem(LOG_KEY); render(); };
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(e => log('sw: ' + e.message, 'err'));
+</script>
+</body>
+</html>
