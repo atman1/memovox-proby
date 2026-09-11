@@ -32,14 +32,16 @@
   <ol>
     <li>Najlepiej zainstaluj jako aplikację (Chrome: menu ⋮ → „Dodaj do ekranu głównego" / „Zainstaluj"; Safari: Udostępnij → „Do ekranu początkowego") i otwórz z ikony.</li>
     <li>Wybierz tryb, kliknij <b>Start</b>. Trzy pytania z Callana (głos kobiecy) w kółko: pytanie, krótka przerwa, to samo pytanie jeszcze raz, cisza na Twoją odpowiedź, wzór odpowiedzi (głos męski), następna karta. Możesz odpowiadać na głos albo tylko słuchać.</li>
-    <li>Po 2-3 cyklach <b>zablokuj ekran</b>. Słuchaj 2 minuty. Potem odblokuj, wróć tu i kliknij <b>Stop</b>.</li>
-    <li>Kliknij <b>Kopiuj log</b> i wklej mi. Powtórz dla drugiego trybu. Jeśli masz słuchawki BT, trzeci raz w słuchawkach.</li>
+    <li>Po pierwszej karcie <b>zablokuj ekran</b>. Słuchaj 2 minuty. Potem odblokuj, wróć tu i kliknij <b>Stop</b>.</li>
+    <li>Kliknij <b>Kopiuj log</b> i wklej mi. Powtórz dla każdego trybu (B, C, D). Jeśli masz słuchawki BT, trzeci raz w słuchawkach.</li>
   </ol>
 </div>
 
 <div class="box">
   <label><input type="radio" name="mode" value="pause" checked> Tryb A: przerwy = pauza odtwarzacza (timer JS)</label>
-  <label><input type="radio" name="mode" value="silence"> Tryb B: przerwy = odtwarzanie ciszy (dźwięk gra bez przerwy)</label>
+  <label><input type="radio" name="mode" value="silence"> Tryb B: przerwy = odtwarzanie ciszy (osobne pliki)</label>
+  <label><input type="radio" name="mode" value="track"> Tryb C: cała sesja sklejona w JEDEN plik audio (jak piosenka)</label>
+  <label><input type="radio" name="mode" value="webaudio"> Tryb D: Web Audio, segmenty zaplanowane z góry na jednym zegarze dźwięku</label>
   <button id="start">Start</button>
   <button id="stop" class="sec" disabled>Stop</button>
   <button id="copy" class="sec">Kopiuj log</button>
@@ -52,8 +54,8 @@
 <script>
 const CARDS = [
   { q: 'audio/q1.wav', a: 'audio/a1.wav', words: 4, text: 'Is this a pen?' },
-  { q: 'audio/q2.wav', a: 'audio/a2.wav', words: 9, text: 'What's the difference between a house and a flat?' },
-  { q: 'audio/q3.wav', a: 'audio/a3.wav', words: 15, text: 'Do you think it's better to live in the city or in the country, and why?' },
+  { q: 'audio/q2.wav', a: 'audio/a2.wav', words: 9, text: "What's the difference between a house and a flat?" },
+  { q: 'audio/q3.wav', a: 'audio/a3.wav', words: 15, text: "Do you think it's better to live in the city or in the country, and why?" },
 ];
 const LOG_KEY = 'memovox-proba-01-log';
 const logEl = document.getElementById('log');
@@ -153,17 +155,94 @@ async function loop(mode) {
   }
 }
 
+// ---------- Tryb C / D: wspólny plan sesji ----------
+async function decodeAll(ctx) {
+  const out = [];
+  for (const c of CARDS) {
+    const [q, a] = await Promise.all([c.q, c.a].map(u => fetch(u).then(r => r.arrayBuffer()).then(b => ctx.decodeAudioData(b))));
+    out.push({ q, a, text: c.text, words: c.words });
+  }
+  return out;
+}
+function plan(bufs, loops) {
+  // zwraca segmenty {t, buf?, label} i całkowity czas
+  const segs = []; let t = 0;
+  for (let l = 1; l <= loops; l++) for (const [i, b] of bufs.entries()) {
+    segs.push({ t, label: `— karta ${i + 1} (cykl ${l}): ${b.text}` });
+    segs.push({ t, buf: b.q, label: 'pytanie' }); t += b.q.duration;
+    t += b.words < 8 ? 0.7 : 1.5;
+    segs.push({ t, buf: b.q, label: 'pytanie 2x' }); t += b.q.duration;
+    t += b.a.duration * 1.5 + 1;
+    segs.push({ t, buf: b.a, label: 'wzór' }); t += b.a.duration;
+    t += 0.6;
+  }
+  return { segs, total: t };
+}
+function wavFromBuffer(buf) {
+  const ch = buf.getChannelData(0), n = ch.length, out = new ArrayBuffer(44 + n * 2), v = new DataView(out);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, buf.sampleRate, true); v.setUint32(28, buf.sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.max(-1, Math.min(1, ch[i])) * 32767, true);
+  return URL.createObjectURL(new Blob([out], { type: 'audio/wav' }));
+}
+async function runTrack() {
+  setStatus('składam ścieżkę...');
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const tmp = new AC();
+  const bufs = await decodeAll(tmp); tmp.close();
+  const { segs, total } = plan(bufs, 3);
+  const off = new OfflineAudioContext(1, Math.ceil(total * 24000), 24000);
+  for (const sg of segs) if (sg.buf) { const src = off.createBufferSource(); src.buffer = sg.buf; src.connect(off.destination); src.start(sg.t); }
+  const rendered = await off.startRendering();
+  const url = wavFromBuffer(rendered);
+  log(`ścieżka gotowa: ${total.toFixed(0)} s, ${segs.filter(x => x.buf).length} segmentów, jeden plik`);
+  let next = 0;
+  audio.ontimeupdate = () => {
+    while (next < segs.length && audio.currentTime >= segs[next].t - 0.05) {
+      const sg = segs[next++];
+      log((sg.buf ? '▶ ' : '') + sg.label + ` @${audio.currentTime.toFixed(1)}s`);
+      if (!sg.buf) setStatus(sg.label);
+    }
+  };
+  audio.onended = () => { log('ścieżka dograła do końca'); stopBtn.onclick(); };
+  audio.src = url;
+  await audio.play();
+}
+let liveCtx = null;
+async function runWebAudio() {
+  setStatus('planuję segmenty...');
+  const AC = window.AudioContext || window.webkitAudioContext;
+  liveCtx = new AC();
+  await liveCtx.resume();
+  const bufs = await decodeAll(liveCtx);
+  const { segs, total } = plan(bufs, 3);
+  const t0 = liveCtx.currentTime + 0.3;
+  // cichy podkład, żeby kontekst miał ciągły sygnał
+  const osc = liveCtx.createOscillator(), g = liveCtx.createGain(); g.gain.value = 0.0001; osc.connect(g).connect(liveCtx.destination); osc.start(t0); osc.stop(t0 + total);
+  for (const sg of segs) if (sg.buf) {
+    const src = liveCtx.createBufferSource(); src.buffer = sg.buf; src.connect(liveCtx.destination); src.start(t0 + sg.t);
+    src.onended = () => log(`koniec: ${sg.label} @ zegar ${(liveCtx.currentTime - t0).toFixed(1)}s (plan ${(sg.t + sg.buf.duration).toFixed(1)}s), stan ctx=${liveCtx.state}`);
+  }
+  liveCtx.onstatechange = () => log(`audiocontext:${liveCtx.state}`);
+  log(`zaplanowane ${segs.filter(x => x.buf).length} segmentów na ${total.toFixed(0)} s`);
+  setTimeout(() => { if (running) { log('plan dobiegł końca'); stopBtn.onclick(); } }, (total + 1) * 1000);
+}
+
 startBtn.onclick = () => {
   const mode = document.querySelector('input[name=mode]:checked').value;
   running = true; startBtn.disabled = true; stopBtn.disabled = false;
-  log(`START tryb ${mode === 'pause' ? 'A (pauza)' : 'B (cisza)'}; ${navigator.userAgent}; PWA=${matchMedia('(display-mode: standalone)').matches || navigator.standalone ? 'tak' : 'nie'}`);
+  log(`START tryb ${({pause:'A (pauza)',silence:'B (cisza)',track:'C (jeden plik)',webaudio:'D (Web Audio)'})[mode]}; ${navigator.userAgent}; PWA=${matchMedia('(display-mode: standalone)').matches || navigator.standalone ? 'tak' : 'nie'}`);
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: 'Memovox próba 0.1', artist: 'hands-free' });
     ['play', 'pause', 'nexttrack', 'previoustrack'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, () => log('mediaSession:' + a)); } catch (e) {} });
   }
-  loop(mode);
+  if (mode === 'track') runTrack().catch(e => log('BŁĄD: ' + e.message, 'err'));
+  else if (mode === 'webaudio') runWebAudio().catch(e => log('BŁĄD: ' + e.message, 'err'));
+  else loop(mode);
 };
-stopBtn.onclick = () => { running = false; runId++; audio.pause(); setStatus('zatrzymane'); startBtn.disabled = false; stopBtn.disabled = true; log('STOP'); };
+stopBtn.onclick = () => { running = false; runId++; audio.pause(); audio.ontimeupdate = null; audio.onended = null; if (liveCtx) { liveCtx.close(); liveCtx = null; } setStatus('zatrzymane'); startBtn.disabled = false; stopBtn.disabled = true; log('STOP'); };
 document.getElementById('copy').onclick = async () => {
   const txt = lines.map(l => l.t + ' ' + l.msg).join('\n');
   try { await navigator.clipboard.writeText(txt); setStatus('log skopiowany'); }
