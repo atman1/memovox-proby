@@ -239,7 +239,7 @@ startBtn.onclick = () => {
   log(`START tryb ${({pause:'A (pauza)',silence:'B (cisza)',track:'C (jeden plik)',webaudio:'D (Web Audio)'})[mode]}; ${navigator.userAgent}; PWA=${matchMedia('(display-mode: standalone)').matches || navigator.standalone ? 'tak' : 'nie'}`);
   if ('mediaSession' in navigator) {
     navigator.mediaSession.metadata = new MediaMetadata({ title: 'Memovox próba 0.1', artist: 'hands-free' });
-    ['play', 'pause', 'nexttrack', 'previoustrack'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, () => log('mediaSession:' + a)); } catch (e) {} });
+    ['play', 'pause', 'nexttrack', 'previoustrack', 'seekbackward', 'seekforward', 'stop'].forEach(a => { try { navigator.mediaSession.setActionHandler(a, () => { log(`PRZYCISK ${a} @${audio.currentTime.toFixed(1)}s (to byłoby Again dla bieżącej karty)`, 'late'); if (a === 'pause') audio.play().catch(() => {}); }); } catch (e) {} });
   }
   if (mode === 'track') runTrack().catch(e => log('BŁĄD: ' + e.message, 'err'));
   else if (mode === 'webaudio') runWebAudio().catch(e => log('BŁĄD: ' + e.message, 'err'));
