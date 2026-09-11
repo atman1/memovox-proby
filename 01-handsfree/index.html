@@ -31,7 +31,7 @@
   <p><b>Co robisz:</b></p>
   <ol>
     <li>Najlepiej zainstaluj jako aplikację (Chrome: menu ⋮ → „Dodaj do ekranu głównego" / „Zainstaluj"; Safari: Udostępnij → „Do ekranu początkowego") i otwórz z ikony.</li>
-    <li>Wybierz tryb, kliknij <b>Start</b>. Usłyszysz: dwa piski (pytanie), przerwa, dwa piski, cisza na odpowiedź, długi ton (wzór). Trzy karty w kółko.</li>
+    <li>Wybierz tryb, kliknij <b>Start</b>. Trzy pytania z Callana (głos kobiecy) w kółko: pytanie, krótka przerwa, to samo pytanie jeszcze raz, cisza na Twoją odpowiedź, wzór odpowiedzi (głos męski), następna karta. Możesz odpowiadać na głos albo tylko słuchać.</li>
     <li>Po 2-3 cyklach <b>zablokuj ekran</b>. Słuchaj 2 minuty. Potem odblokuj, wróć tu i kliknij <b>Stop</b>.</li>
     <li>Kliknij <b>Kopiuj log</b> i wklej mi. Powtórz dla drugiego trybu. Jeśli masz słuchawki BT, trzeci raz w słuchawkach.</li>
   </ol>
@@ -51,9 +51,9 @@
 
 <script>
 const CARDS = [
-  { q: 'audio/q1.wav', a: 'audio/a1.wav', words: 4 },
-  { q: 'audio/q2.wav', a: 'audio/a2.wav', words: 9 },
-  { q: 'audio/q3.wav', a: 'audio/a3.wav', words: 12 },
+  { q: 'audio/q1.wav', a: 'audio/a1.wav', words: 4, text: 'Is this a pen?' },
+  { q: 'audio/q2.wav', a: 'audio/a2.wav', words: 9, text: 'What's the difference between a house and a flat?' },
+  { q: 'audio/q3.wav', a: 'audio/a3.wav', words: 15, text: 'Do you think it's better to live in the city or in the country, and why?' },
 ];
 const LOG_KEY = 'memovox-proba-01-log';
 const logEl = document.getElementById('log');
@@ -135,7 +135,7 @@ async function loop(mode) {
     cycle++;
     for (const [i, c] of CARDS.entries()) {
       if (!running || myRun !== runId) return;
-      setStatus(`cykl ${cycle}, karta ${i + 1}`);
+      setStatus(`cykl ${cycle}, karta ${i + 1}: ${c.text}`);
       log(`— karta ${i + 1} (cykl ${cycle})`);
       try {
         await playUrl(c.q, 'pytanie');
