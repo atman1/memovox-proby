@@ -170,13 +170,14 @@ function plan(bufs, loops) {
   // zwraca segmenty {t, buf?, label} i całkowity czas
   const segs = []; let t = 0;
   for (let l = 1; l <= loops; l++) for (const [i, b] of bufs.entries()) {
-    segs.push({ t, label: `— karta ${i + 1} (cykl ${l}): ${b.text}` });
+    segs.push({ t, label: `— karta ${i + 1} (cykl ${l}, ${i === 0 ? 'płynność' : 'konstrukcja'}): ${b.text}` });
+    const mature = i === 0; // demo: karta 1 gra jako dojrzała (płynność), 2 i 3 jako młode (konstrukcja)
     segs.push({ t, buf: b.q, label: 'pytanie' }); t += b.q.duration;
-    t += b.words < 8 ? 0.7 : 1.5;
-    segs.push({ t, buf: b.q, label: 'pytanie 2x' }); t += b.q.duration;
+    if (!mature) { t += b.words < 8 ? 0.7 : 1.5; segs.push({ t, buf: b.q, label: 'pytanie 2x' }); t += b.q.duration; }
     t += b.a.duration * 1.5 + 1;
     segs.push({ t, buf: b.a, label: 'wzór' }); t += b.a.duration;
-    t += 0.6;
+    if (mature) { segs.push({ t, label: '(cisza na powtórzenie za wzorem)' }); t += b.a.duration; }
+    t += b.a.duration <= 5 ? 1 : 2; // bufor przed następnym pytaniem
   }
   return { segs, total: t };
 }
