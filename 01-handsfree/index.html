@@ -132,9 +132,9 @@ async function loop(mode) {
   const myRun = ++runId;
   cycle = 0;
   while (running && myRun === runId) {
+    cycle++;
     for (const [i, c] of CARDS.entries()) {
       if (!running || myRun !== runId) return;
-      cycle++;
       setStatus(`cykl ${cycle}, karta ${i + 1}`);
       log(`— karta ${i + 1} (cykl ${cycle})`);
       try {
